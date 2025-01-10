@@ -2,6 +2,7 @@
 using Amazon.Util.Internal;
 using statrecovery.Models;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
@@ -94,7 +95,7 @@ namespace statrecovery.Utils
                             await semaphore.WaitAsync();
                             try
                             {
-                                await UploadPdfFileAsync(db, zipFile.Name, client, file, poNumber, tasks, ct);
+                                await UploadPdfFileAsync(db, zipFile.Name, client, file, poNumber, ct);
                             }
                             finally
                             {
@@ -165,9 +166,10 @@ namespace statrecovery.Utils
                         .Where(obj => !string.IsNullOrEmpty(obj.Key))
                         //Attention! There were duplicates in the files (one pdf showing in
                         //more than a line). This was resolved moving those cases to
-                        //the lowest PO number in case they have different values
+                        //the highest PO number in case they have different values
                         .GroupBy(g => g.Key)
-                        .ToDictionary(group => group.Key, group => group.Min(kv => kv.Value) ?? string.Empty)
+                        .ToDictionary(group => group.Key,
+                            group => group.Where(kv => !string.IsNullOrWhiteSpace(kv.Value)).Max(kv => kv.Value) ?? string.Empty)
                         ?? [];
 
                     return true;
@@ -205,7 +207,7 @@ namespace statrecovery.Utils
         }
 
         private static async Task UploadPdfFileAsync(Database db, string zipName, IAmazonS3 client,
-            string file, string poNumber, ConcurrentBag<Task> tasks, CancellationToken ct)
+            string file, string poNumber, CancellationToken ct)
         {
             var pdf = new ExtractedPdf(Path.GetFileName(file), File.GetCreationTime(file), poNumber);
             var objectName = $"by-po/{pdf.PoNumber}/{pdf.Name}";
@@ -246,10 +248,13 @@ namespace statrecovery.Utils
                     }, ct));
             }
 
+            var stopwatch = Stopwatch.StartNew();
             while (!ct.IsCancellationRequested && tasks.Any(task => (int)task.Status < (int)TaskStatus.RanToCompletion))
             {
                 await Task.WhenAll(tasks);
             }
+            stopwatch.Stop();
+            Console.WriteLine($"Elapsed time: {stopwatch.ElapsedMilliseconds} ms");
 
             if (tasks.Any(task => task.IsFaulted))
             {
