@@ -16,7 +16,7 @@ try
 
     //await Process.DeletePdfs();
 
-    Database db = new();// await Process.LoadMetadataAsync();
+    Database db = await Process.LoadMetadataAsync();
 
     //converts to a csv in case I need to read
     //File.WriteAllLines(@".\db.csv", db.SelectMany(list => list.Value, (list, item) => $"{list.Key}|{item}"));
